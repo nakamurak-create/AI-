@@ -26,16 +26,37 @@ export async function POST(req: Request) {
       systemInstruction: SYSTEM_PROMPT + (candidateContext ? "\n\n" + candidateContext : ""),
     });
 
-    // Geminiは履歴形式が異なるので変換
-    // user/modelロール、最後のメッセージは別にする
-    const history = messages.slice(0, -1).map((m: any) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
+    // Gemini APIの制約:
+    // 1. 履歴の最初のメッセージは必ず "user" ロールでなければならない
+    // 2. user と model が交互に並ぶ必要がある
+    // フロント側では面接官(assistant)が先に挨拶するため、そのまま送ると壊れる
+    // → assistant始まりのメッセージを適切にハンドリングする
+
     const lastMessage = messages[messages.length - 1];
+    const previousMessages = messages.slice(0, -1);
+
+    // Gemini形式に変換 + 先頭がmodelなら前にダミーuserを挿入
+    const geminiHistory: Array<{role: string, parts: Array<{text: string}>}> = [];
+    for (const m of previousMessages) {
+      const role = m.role === "assistant" ? "model" : "user";
+      // 先頭がmodelになる場合、ダミーのuserメッセージを挿入
+      if (geminiHistory.length === 0 && role === "model") {
+        geminiHistory.push({
+          role: "user",
+          parts: [{ text: "面接を始めてください。" }],
+        });
+      }
+      // 同じロールが連続する場合、前のメッセージに結合(Geminiは交互必須)
+      const last = geminiHistory[geminiHistory.length - 1];
+      if (last && last.role === role) {
+        last.parts[0].text += "\n" + m.content;
+      } else {
+        geminiHistory.push({ role, parts: [{ text: m.content }] });
+      }
+    }
 
     const chat = model.startChat({
-      history,
+      history: geminiHistory,
       generationConfig: {
         maxOutputTokens: 500,
         temperature: 0.8,
