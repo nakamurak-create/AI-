@@ -29,17 +29,19 @@ export async function POST(req: Request) {
     const { transcript, candidateContext } = await req.json();
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.0-flash",
       systemInstruction: SYSTEM_PROMPT,
-      generationConfig: {
-        responseMimeType: "application/json", // GeminiのJSONモード
-        temperature: 0.5,
-      },
     });
 
     const prompt = `${candidateContext || ""}\n\n【面接ログ】\n${transcript}\n\n上記の面接について、JSONフォーマットでフィードバックを返してください。`;
 
-    const result = await model.generateContent(prompt);
+    const result = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.5,
+      },
+    });
     const text = result.response.text();
     const cleaned = text.replace(/```json|```/g, "").trim();
     const feedback = JSON.parse(cleaned);
